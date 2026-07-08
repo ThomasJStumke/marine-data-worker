@@ -33,6 +33,28 @@ export async function createImportJob(opts: CreateImportJobOptions): Promise<str
   return data.id as string;
 }
 
+/**
+ * Looks up an already-COMPLETED scope='global' job for the exact bbox — the
+ * world grid (src/geo/worldGrid.ts) is static, so an exact match is a safe
+ * "has this cell already been imported" check. Used by `--global` to resume
+ * a sweep after an interruption without re-querying cells it already has.
+ */
+export async function findCompletedGlobalJobForBBox(bbox: BBox): Promise<boolean> {
+  const { data, error } = await db
+    .from("marine_structure_import_jobs")
+    .select("id")
+    .eq("scope", "global")
+    .eq("status", "COMPLETED")
+    .eq("bbox_west", bbox.west)
+    .eq("bbox_south", bbox.south)
+    .eq("bbox_east", bbox.east)
+    .eq("bbox_north", bbox.north)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`findCompletedGlobalJobForBBox failed: ${error.message}`);
+  return data !== null;
+}
+
 export interface CompleteImportJobInfo {
   providerVersion: string;
   featuresFound: number;

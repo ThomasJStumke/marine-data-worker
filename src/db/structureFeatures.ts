@@ -37,18 +37,38 @@ async function upsertFeature(feature: NormalizedStructureFeature): Promise<"inse
   return existing.checksum === feature.checksum ? "unchanged" : "updated";
 }
 
-/** Upserts a batch of normalized features sequentially and tallies insert/update/unchanged counts for import-job reporting. */
+// Dense coastal cells in a `--global` sweep can hold hundreds of features —
+// fully sequential upserts (one at a time) make those cells the slow path.
+// Bounded concurrency (no queue library needed for a fixed-size worker pool
+// this small) keeps a cap on concurrent Supabase round-trips without
+// changing the per-feature read-then-upsert logic in upsertFeature().
+const UPSERT_CONCURRENCY = 8;
+
+async function runWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** Upserts a batch of normalized features with bounded concurrency and tallies insert/update/unchanged counts for import-job reporting. */
 export async function storeStructureFeatures(features: NormalizedStructureFeature[]): Promise<StructureImportOutcome> {
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
 
-  for (const feature of features) {
+  await runWithConcurrency(features, UPSERT_CONCURRENCY, async (feature) => {
     const outcome = await upsertFeature(feature);
     if (outcome === "inserted") inserted++;
     else if (outcome === "updated") updated++;
     else unchanged++;
-  }
+  });
 
   return {
     featuresFound: features.length,

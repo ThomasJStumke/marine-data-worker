@@ -89,6 +89,11 @@ export const config = {
   overpassTimeoutSec: envInt("OVERPASS_TIMEOUT_SEC", 60),
   overpassMaxRetries: envInt("OVERPASS_MAX_RETRIES", 4),
   overpassCacheTtlMs: envInt("OVERPASS_CACHE_TTL_MS", 24 * 60 * 60 * 1000),
+  // Pause between cells in a `--global` sweep (src/geo/worldGrid.ts) — the
+  // public Overpass instance has no per-account quota, just a fair-use
+  // expectation of not hammering it; a few hundred sequential cell queries
+  // needs an explicit pace, unlike a single launch-site import.
+  overpassRequestDelayMs: envInt("OVERPASS_REQUEST_DELAY_MS", 3000),
 
   logLevel: (process.env.LOG_LEVEL || "info") as "debug" | "info" | "warn" | "error",
 
