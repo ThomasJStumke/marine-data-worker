@@ -26,6 +26,18 @@ export async function startWorkerRun(): Promise<string> {
   return data.id as string;
 }
 
+export interface PendingWorkerRun {
+  id: string;
+}
+
+/** Claims the oldest admin-requested ("Force Run") PENDING row, flipping it to RUNNING. Returns null if there's nothing pending. */
+export async function claimPendingWorkerRun(): Promise<PendingWorkerRun | null> {
+  const { data, error } = await db.rpc("claim_next_pending_worker_run");
+  if (error) throw new Error(`claim_next_pending_worker_run failed: ${error.message}`);
+  const rows = (data as PendingWorkerRun[] | null) ?? [];
+  return rows[0] ?? null;
+}
+
 export async function finishWorkerRun(runId: string, counts: WorkerRunCounts): Promise<void> {
   const { error } = await db
     .from("marine_data_worker_runs")

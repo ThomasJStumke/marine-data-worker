@@ -11,6 +11,7 @@
     "worker": "tsx src/cli/run.ts",
     "worker:once": "tsx src/cli/runOnce.ts",
     "worker:drain": "tsx src/cli/drain.ts",
+    "worker:check-force-run": "tsx src/cli/checkForceRun.ts",
     "worker:import-grid": "tsx src/cli/importGrid.ts",
     "worker:queue": "tsx src/cli/queue.ts",
     "worker:retry": "tsx src/cli/retry.ts",
