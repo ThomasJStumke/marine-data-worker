@@ -2,13 +2,24 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runTool } from "./exec.js";
 
-export const ALGORITHM_VERSION_HILLSHADE = "depth-color-relief-v1";
+export const ALGORITHM_VERSION_HILLSHADE = "depth-color-relief-v2";
 
 // Simple blue-scale bathymetric colour ramp (elevation in metres, negative =
-// underwater; 0 and above rendered transparent-ish since the layer is meant
-// to sit over the base map's own land colours). Bundled inline rather than
-// as a separate asset file so the worker package has no extra files to keep
-// in sync with the Docker build context.
+// underwater). Bundled inline rather than as a separate asset file so the
+// worker package has no extra files to keep in sync with the Docker build
+// context.
+//
+// Land (and very shallow water above -1m) must render fully transparent —
+// otherwise this raster draws as a solid block over land wherever a launch
+// site's coverage polygon includes any shore/inland margin (it always
+// includes a small one, see bathymetry_coverage_inland_km). v1 only put the
+// alpha=0 stop at exactly 0m, and gdaldem linearly interpolates alpha
+// between adjacent stops — so -10m..0m faded gradually instead of cutting
+// off, leaving a visible smear at the coastline instead of a crisp edge.
+// The -1.001/-1 pair below is intentionally ~1mm apart: real depth data
+// still interpolates smoothly down to -1.001, then alpha drops to 0 within
+// that last sliver, giving an effectively hard cutoff at -1m without
+// disabling interpolation for the actual depth colours further out.
 const DEPTH_COLOR_RAMP = `-11000 8 29 88 255
 -6000 8 64 129 255
 -3000 20 100 160 255
@@ -17,6 +28,8 @@ const DEPTH_COLOR_RAMP = `-11000 8 29 88 255
 -200 116 196 226 255
 -50 171 221 236 255
 -10 224 243 248 255
+-1.001 224 243 248 255
+-1 255 255 255 0
 0 255 255 255 0
 nv 0 0 0 0
 `;
