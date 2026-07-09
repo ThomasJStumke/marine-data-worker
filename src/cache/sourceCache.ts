@@ -12,6 +12,7 @@ export interface CacheLookupResult {
   overlapRatio: number;
   filePath: string;
   checksum: string;
+  sourceCacheId: string;
 }
 
 /**
@@ -72,6 +73,7 @@ export async function findCachedSource(
     overlapRatio: row.overlap_ratio,
     filePath: row.source_file,
     checksum: row.checksum,
+    sourceCacheId: row.id,
   };
 }
 
@@ -79,8 +81,8 @@ async function touchCacheEntry(id: string): Promise<void> {
   await db.from("marine_data_source_cache").update({ last_used_at: new Date().toISOString() }).eq("id", id);
 }
 
-async function storeCacheEntry(result: SourceFetchResult): Promise<void> {
-  const { error } = await db.rpc("store_source_cache_entry", {
+async function storeCacheEntry(result: SourceFetchResult): Promise<string> {
+  const { data, error } = await db.rpc("store_source_cache_entry", {
     p_provider: result.provider,
     p_provider_version: result.providerVersion,
     p_resolution_arc_sec: result.resolutionArcSec,
@@ -94,6 +96,7 @@ async function storeCacheEntry(result: SourceFetchResult): Promise<void> {
     p_metadata: {},
   });
   if (error) throw new Error(`store_source_cache_entry failed: ${error.message}`);
+  return data as string;
 }
 
 /**
@@ -108,14 +111,14 @@ export async function fetchSourceWithCache(
   resolutionArcSec: number,
   latitude: number,
   onStage: (stage: string, message: string) => Promise<void>,
-): Promise<{ filePath: string; fromCache: boolean }> {
+): Promise<{ filePath: string; fromCache: boolean; sourceCacheId: string }> {
   const cached = await findCachedSource(provider.name, provider.version, resolutionArcSec, requestedBBox);
   if (cached) {
     await onStage(
       "cache_hit",
       `Reusing cached ${provider.name} source (${cached.fullyContains ? "fully contains" : `${Math.round(cached.overlapRatio * 100)}% overlap`}) — no download needed`,
     );
-    return { filePath: cached.filePath, fromCache: true };
+    return { filePath: cached.filePath, fromCache: true, sourceCacheId: cached.sourceCacheId };
   }
 
   await onStage("cache_miss", `No cached ${provider.name} source covers this area — downloading`);
@@ -127,7 +130,7 @@ export async function fetchSourceWithCache(
 
   const destDir = path.join(config.cacheDirectory, provider.name);
   const result = await provider.fetchSource({ bbox: paddedBBox, resolutionArcSec }, destDir);
-  await storeCacheEntry(result);
+  const sourceCacheId = await storeCacheEntry(result);
 
-  return { filePath: result.filePath, fromCache: false };
+  return { filePath: result.filePath, fromCache: false, sourceCacheId };
 }

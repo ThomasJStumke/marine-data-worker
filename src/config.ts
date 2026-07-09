@@ -82,6 +82,12 @@ export const config = {
   sourceResolutionArcSec: envFloat("SOURCE_RESOLUTION_ARC_SEC", 15),
   sourceCacheMinOverlapRatio: envFloat("SOURCE_CACHE_MIN_OVERLAP_RATIO", 0.9),
 
+  // Contours are traced once per fixed global grid cell (not per launch
+  // site) so adjacent sites sharing a cell get bit-identical vertices —
+  // see src/geo/contourGrid.ts and src/cache/contourCache.ts.
+  contourGridCellSizeDeg: envFloat("CONTOUR_GRID_CELL_SIZE_DEG", 9), // ~1000km at the equator, narrower (never wider) toward the poles
+  contourRegionPaddingKm: envFloat("CONTOUR_REGION_PADDING_KM", 50), // pad beyond the raw cell so a site near a cell edge is still fully contained in the traced extent
+
   // Marine Structure Platform — OSM/OpenSeaMap importer (Phase 1). Public
   // API, no credentials needed, so these are plain optional envs with sane
   // defaults rather than requireEnv().

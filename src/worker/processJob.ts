@@ -5,12 +5,14 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { fetchLaunchSite } from "../db/launchSites.js";
 import { logStage, markStage, markUploading, markJobCompleted, markJobFailed } from "../db/jobs.js";
-import { buildCoveragePolygon } from "../geo/polygon.js";
+import { buildCoveragePolygon, padBBox } from "../geo/polygon.js";
+import { resolveContourGridCell } from "../geo/contourGrid.js";
 import { getProvider } from "../providers/registry.js";
 import { fetchSourceWithCache } from "../cache/sourceCache.js";
+import { fetchOrTraceRegionalContours } from "../cache/contourCache.js";
 import { clipToPolygon } from "../pipeline/clip.js";
 import { generateDepthShading, ALGORITHM_VERSION_HILLSHADE } from "../pipeline/hillshade.js";
-import { generateContours, ALGORITHM_VERSION_CONTOURS } from "../pipeline/contours.js";
+import { clipContoursToPolygon, ALGORITHM_VERSION_CONTOURS } from "../pipeline/contours.js";
 import { rasterToPmtiles, contoursToPmtiles, PMTILES_BUILD_VERSION } from "../pipeline/pmtiles.js";
 import { validatePmtiles } from "../pipeline/validate.js";
 import { sha256File } from "../pipeline/checksum.js";
@@ -20,10 +22,21 @@ import type { BathymetryJob } from "../types.js";
 /**
  * Runs the full pipeline for one already-claimed (status=GENERATING) job:
  *
- *   read launch site -> build coverage polygon -> acquire provider source
- *   (cache-first) -> clip to polygon -> depth shading -> contours -> PMTiles
- *   -> validate -> checksum -> compare against live checksums -> upload only
- *   what changed -> update launch_locations + bathymetry_jobs -> COMPLETED
+ *   read launch site -> build coverage polygon -> resolve its fixed contour
+ *   grid cell -> acquire provider source for the padded CELL (cache-first)
+ *   -> clip to the site's own polygon -> depth shading -> fetch-or-trace
+ *   contours for the whole CELL (cache-first, shared across every site in
+ *   it) -> vector-clip that regional trace to the site's own polygon ->
+ *   PMTiles -> validate -> checksum -> compare against live checksums ->
+ *   upload only what changed -> update launch_locations + bathymetry_jobs
+ *   -> COMPLETED
+ *
+ * Contours are traced once per grid cell (see geo/contourGrid.ts,
+ * cache/contourCache.ts) rather than once per site — this is what makes
+ * adjacent sites sharing a cell produce bit-identical contour vertices in
+ * their overlap area, instead of each site's independently-rotated cutline
+ * producing mismatched lines at its own edge. Hillshade/bathymetry stay
+ * per-site, unaffected by this.
  *
  * On any failure, the job is marked FAILED and the launch site's EXISTING
  * tile URLs/enabled flags are left completely untouched (see
@@ -59,9 +72,34 @@ export async function processJob(job: BathymetryJob): Promise<JobOutcome> {
     const provider = getProvider(job.source_provider || config.bathymetryProvider);
     const resolutionArcSec = config.sourceResolutionArcSec;
 
-    const { filePath: sourcePath, fromCache } = await fetchSourceWithCache(
+    // Contours are traced once per fixed grid cell, not per site (see
+    // geo/contourGrid.ts) — so the raster fetched here is padded out to
+    // cover that whole cell (comfortably wider than any single site's own
+    // polygon), and this ONE raster serves both the per-site hillshade clip
+    // below AND the shared regional contour trace, with no duplicate fetch.
+    const cell = resolveContourGridCell(site.latitude, site.longitude, config.contourGridCellSizeDeg);
+    let widePaddedBBox = padBBox(cell, config.contourRegionPaddingKm, site.latitude);
+    const fullyContainsPolygon = (b: typeof widePaddedBBox) =>
+      polygon.bbox.west >= b.west && polygon.bbox.east <= b.east &&
+      polygon.bbox.south >= b.south && polygon.bbox.north <= b.north;
+    if (!fullyContainsPolygon(widePaddedBBox)) {
+      // Rare (a site sitting close enough to a ~1000km grid line, with a
+      // wide-enough offshore facing toward that line, that its own polygon
+      // pokes past the padded cell) but geometrically possible — widen
+      // defensively rather than silently producing a truncated regional
+      // trace. One doubling of the pad comfortably covers any realistic
+      // shortfall since the site's own polygon (~80km) is far smaller than
+      // the pad itself (50km default).
+      logger.warn("site polygon not fully contained by its padded grid cell — widening padding for this job", {
+        jobId: job.id,
+        siteId: site.id,
+      });
+      widePaddedBBox = padBBox(widePaddedBBox, config.contourRegionPaddingKm, site.latitude);
+    }
+
+    const { filePath: sourcePath, fromCache, sourceCacheId } = await fetchSourceWithCache(
       provider,
-      polygon.bbox,
+      widePaddedBBox,
       resolutionArcSec,
       site.latitude,
       onStage,
@@ -75,7 +113,17 @@ export async function processJob(job: BathymetryJob): Promise<JobOutcome> {
     const shadedPath = await generateDepthShading(clippedPath, workDir);
 
     await onStage("contours", `Generating ${config.contourIntervalM}m contours`);
-    const contoursGeoJsonPath = await generateContours(clippedPath, workDir, config.contourIntervalM);
+    const { filePath: regionalContoursPath } = await fetchOrTraceRegionalContours(
+      provider,
+      resolutionArcSec,
+      config.contourIntervalM,
+      cell,
+      widePaddedBBox,
+      sourcePath,
+      sourceCacheId,
+      onStage,
+    );
+    const contoursGeoJsonPath = await clipContoursToPolygon(regionalContoursPath, polygon, workDir);
 
     await onStage("pmtiles", "Converting outputs to PMTiles");
     const bathymetryPmtilesPath = await rasterToPmtiles(shadedPath, workDir);
