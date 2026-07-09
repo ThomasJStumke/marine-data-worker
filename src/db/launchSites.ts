@@ -35,3 +35,21 @@ export async function listNeverGeneratedSites(filter: QueueableSiteFilter = {}):
   if (error) throw new Error(`listNeverGeneratedSites failed: ${error.message}`);
   return (data ?? []) as LaunchSite[];
 }
+
+/** Launch sites with bathymetry_status = COMPLETED — candidates for re-generation (e.g. after a coverage/algorithm change) via the `worker:requeue-generated` CLI. Excludes NOT_GENERATED/QUEUED/GENERATING/UPLOADING/FAILED sites, which have their own dedicated backfill/retry paths. */
+export async function listGeneratedSites(filter: QueueableSiteFilter = {}): Promise<LaunchSite[]> {
+  let query = db
+    .from("launch_locations")
+    .select(
+      "id, name, country, latitude, longitude, beach_facing_deg, bathymetry_tile_url, contour_tile_url, bathymetry_checksum, contour_checksum, bathymetry_coverage_offshore_km, bathymetry_coverage_left_km, bathymetry_coverage_right_km, bathymetry_coverage_inland_km",
+    )
+    .eq("bathymetry_status", "COMPLETED")
+    .order("name");
+
+  if (filter.country) query = query.ilike("country", filter.country);
+  if (filter.launchSiteName) query = query.ilike("name", `%${filter.launchSiteName}%`);
+
+  const { data, error } = await query;
+  if (error) throw new Error(`listGeneratedSites failed: ${error.message}`);
+  return (data ?? []) as LaunchSite[];
+}
