@@ -5,7 +5,7 @@ export async function fetchLaunchSite(id: string): Promise<LaunchSite> {
   const { data, error } = await db
     .from("launch_locations")
     .select(
-      "id, name, country, latitude, longitude, beach_facing_deg, bathymetry_tile_url, contour_tile_url, bathymetry_checksum, contour_checksum, bathymetry_coverage_offshore_km, bathymetry_coverage_left_km, bathymetry_coverage_right_km, bathymetry_coverage_inland_km",
+      "id, name, country, latitude, longitude, beach_facing_deg, bathymetry_tile_url, contour_tile_url, contour_bands_tile_url, bathymetry_checksum, contour_checksum, contour_bands_checksum, bathymetry_coverage_offshore_km, bathymetry_coverage_left_km, bathymetry_coverage_right_km, bathymetry_coverage_inland_km",
     )
     .eq("id", id)
     .single();
@@ -23,7 +23,7 @@ export async function listNeverGeneratedSites(filter: QueueableSiteFilter = {}):
   let query = db
     .from("launch_locations")
     .select(
-      "id, name, country, latitude, longitude, beach_facing_deg, bathymetry_tile_url, contour_tile_url, bathymetry_checksum, contour_checksum, bathymetry_coverage_offshore_km, bathymetry_coverage_left_km, bathymetry_coverage_right_km, bathymetry_coverage_inland_km",
+      "id, name, country, latitude, longitude, beach_facing_deg, bathymetry_tile_url, contour_tile_url, contour_bands_tile_url, bathymetry_checksum, contour_checksum, contour_bands_checksum, bathymetry_coverage_offshore_km, bathymetry_coverage_left_km, bathymetry_coverage_right_km, bathymetry_coverage_inland_km",
     )
     .eq("bathymetry_status", "NOT_GENERATED")
     .order("name");
@@ -41,7 +41,7 @@ export async function listGeneratedSites(filter: QueueableSiteFilter = {}): Prom
   let query = db
     .from("launch_locations")
     .select(
-      "id, name, country, latitude, longitude, beach_facing_deg, bathymetry_tile_url, contour_tile_url, bathymetry_checksum, contour_checksum, bathymetry_coverage_offshore_km, bathymetry_coverage_left_km, bathymetry_coverage_right_km, bathymetry_coverage_inland_km",
+      "id, name, country, latitude, longitude, beach_facing_deg, bathymetry_tile_url, contour_tile_url, contour_bands_tile_url, bathymetry_checksum, contour_checksum, contour_bands_checksum, bathymetry_coverage_offshore_km, bathymetry_coverage_left_km, bathymetry_coverage_right_km, bathymetry_coverage_inland_km",
     )
     .eq("bathymetry_status", "COMPLETED")
     .order("name");

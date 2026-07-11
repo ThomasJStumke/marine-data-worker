@@ -75,6 +75,11 @@ export const config = {
   workerRunIntervalMinutes: envInt("WORKER_RUN_INTERVAL_MINUTES", 60),
 
   contourIntervalM: envFloat("CONTOUR_INTERVAL_M", 10),
+  // Finer than contourIntervalM (lines) since these polygons get remapped to
+  // a user's own custom depth-color ranges client-side (see
+  // pipeline/contour-bands.ts) — a coarser band would force chunkier custom
+  // shading than the user actually configured.
+  contourBandsIntervalM: envFloat("CONTOUR_BANDS_INTERVAL_M", 5),
   minZoom: envInt("MIN_ZOOM", 8),
   maxZoom: envInt("MAX_ZOOM", 14),
 

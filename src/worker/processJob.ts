@@ -10,13 +10,16 @@ import { resolveContourGridCell } from "../geo/contourGrid.js";
 import { getProvider } from "../providers/registry.js";
 import { fetchSourceWithCache } from "../cache/sourceCache.js";
 import { fetchOrTraceRegionalContours } from "../cache/contourCache.js";
+import { fetchOrGenerateRegionalHillshade } from "../cache/hillshadeCache.js";
+import { fetchOrGenerateRegionalContourBands } from "../cache/contourBandsCache.js";
 import { clipToPolygon } from "../pipeline/clip.js";
-import { generateDepthShading, ALGORITHM_VERSION_HILLSHADE } from "../pipeline/hillshade.js";
+import { ALGORITHM_VERSION_HILLSHADE } from "../pipeline/hillshade.js";
 import { clipContoursToPolygon, ALGORITHM_VERSION_CONTOURS } from "../pipeline/contours.js";
-import { rasterToPmtiles, contoursToPmtiles, PMTILES_BUILD_VERSION } from "../pipeline/pmtiles.js";
+import { clipContourBandsToPolygon, ALGORITHM_VERSION_CONTOUR_BANDS } from "../pipeline/contour-bands.js";
+import { rasterToPmtiles, contoursToPmtiles, contourBandsToPmtiles, PMTILES_BUILD_VERSION } from "../pipeline/pmtiles.js";
 import { validatePmtiles } from "../pipeline/validate.js";
 import { sha256File } from "../pipeline/checksum.js";
-import { bathymetryKey, contourKey, uploadIfChanged } from "../r2/uploader.js";
+import { bathymetryKey, contourKey, contourBandsKey, uploadIfChanged } from "../r2/uploader.js";
 import type { BathymetryJob } from "../types.js";
 
 /**
@@ -24,19 +27,20 @@ import type { BathymetryJob } from "../types.js";
  *
  *   read launch site -> build coverage polygon -> resolve its fixed contour
  *   grid cell -> acquire provider source for the padded CELL (cache-first)
- *   -> clip to the site's own polygon -> depth shading -> fetch-or-trace
- *   contours for the whole CELL (cache-first, shared across every site in
- *   it) -> vector-clip that regional trace to the site's own polygon ->
- *   PMTiles -> validate -> checksum -> compare against live checksums ->
- *   upload only what changed -> update launch_locations + bathymetry_jobs
- *   -> COMPLETED
+ *   -> fetch-or-generate regional depth shading / contour bands / contours
+ *   for the whole CELL (cache-first, shared across every site in it) ->
+ *   clip each regional output down to the site's own polygon (raster clip
+ *   for shading, vector clip for bands/contours) -> PMTiles -> validate ->
+ *   checksum -> compare against live checksums -> upload only what changed
+ *   -> update launch_locations + bathymetry_jobs -> COMPLETED
  *
- * Contours are traced once per grid cell (see geo/contourGrid.ts,
- * cache/contourCache.ts) rather than once per site — this is what makes
- * adjacent sites sharing a cell produce bit-identical contour vertices in
- * their overlap area, instead of each site's independently-rotated cutline
- * producing mismatched lines at its own edge. Hillshade/bathymetry stay
- * per-site, unaffected by this.
+ * All three outputs (depth shading, contour bands, contour lines) are
+ * generated once per grid cell (see geo/contourGrid.ts,
+ * cache/hillshadeCache.ts, cache/contourBandsCache.ts, cache/contourCache.ts)
+ * rather than once per site — this is what makes adjacent sites sharing a
+ * cell produce bit-identical pixels/vertices in their overlap area, instead
+ * of each site's independently-rotated cutline producing mismatched output
+ * at its own edge.
  *
  * On any failure, the job is marked FAILED and the launch site's EXISTING
  * tile URLs/enabled flags are left completely untouched (see
@@ -72,11 +76,11 @@ export async function processJob(job: BathymetryJob): Promise<JobOutcome> {
     const provider = getProvider(job.source_provider || config.bathymetryProvider);
     const resolutionArcSec = config.sourceResolutionArcSec;
 
-    // Contours are traced once per fixed grid cell, not per site (see
-    // geo/contourGrid.ts) — so the raster fetched here is padded out to
-    // cover that whole cell (comfortably wider than any single site's own
-    // polygon), and this ONE raster serves both the per-site hillshade clip
-    // below AND the shared regional contour trace, with no duplicate fetch.
+    // Depth shading, contour bands, and contours are all generated once per
+    // fixed grid cell, not per site (see geo/contourGrid.ts) — so the raster
+    // fetched here is padded out to cover that whole cell (comfortably wider
+    // than any single site's own polygon), and this ONE raster feeds all
+    // three regional caches below, with no duplicate fetch.
     const cell = resolveContourGridCell(site.latitude, site.longitude, config.contourGridCellSizeDeg);
     let widePaddedBBox = padBBox(cell, config.contourRegionPaddingKm, site.latitude);
     const fullyContainsPolygon = (b: typeof widePaddedBBox) =>
@@ -106,11 +110,32 @@ export async function processJob(job: BathymetryJob): Promise<JobOutcome> {
     );
     logger.info(fromCache ? "source served from cache" : "source freshly downloaded", { jobId: job.id, provider: provider.name });
 
-    await onStage("clipping", "Clipping source to launch site coverage polygon");
-    const clippedPath = await clipToPolygon(sourcePath, polygon, workDir);
+    await onStage("hillshade", "Generating/reusing regional depth-shading raster");
+    const { filePath: regionalShadedPath } = await fetchOrGenerateRegionalHillshade(
+      provider,
+      resolutionArcSec,
+      cell,
+      widePaddedBBox,
+      sourcePath,
+      sourceCacheId,
+      ALGORITHM_VERSION_HILLSHADE,
+      onStage,
+    );
+    const shadedPath = await clipToPolygon(regionalShadedPath, polygon, workDir);
 
-    await onStage("hillshade", "Generating depth-shading raster");
-    const shadedPath = await generateDepthShading(clippedPath, workDir);
+    await onStage("contour_bands", `Generating/reusing ${config.contourBandsIntervalM}m regional depth-band polygons`);
+    const { filePath: regionalContourBandsPath } = await fetchOrGenerateRegionalContourBands(
+      provider,
+      resolutionArcSec,
+      config.contourBandsIntervalM,
+      cell,
+      widePaddedBBox,
+      sourcePath,
+      sourceCacheId,
+      ALGORITHM_VERSION_CONTOUR_BANDS,
+      onStage,
+    );
+    const contourBandsGeoJsonPath = await clipContourBandsToPolygon(regionalContourBandsPath, polygon, workDir);
 
     await onStage("contours", `Generating ${config.contourIntervalM}m contours`);
     const { filePath: regionalContoursPath } = await fetchOrTraceRegionalContours(
@@ -121,6 +146,7 @@ export async function processJob(job: BathymetryJob): Promise<JobOutcome> {
       widePaddedBBox,
       sourcePath,
       sourceCacheId,
+      ALGORITHM_VERSION_CONTOURS,
       onStage,
     );
     const contoursGeoJsonPath = await clipContoursToPolygon(regionalContoursPath, polygon, workDir);
@@ -128,27 +154,33 @@ export async function processJob(job: BathymetryJob): Promise<JobOutcome> {
     await onStage("pmtiles", "Converting outputs to PMTiles");
     const bathymetryPmtilesPath = await rasterToPmtiles(shadedPath, workDir);
     const contourPmtilesPath = await contoursToPmtiles(contoursGeoJsonPath, workDir);
+    const contourBandsPmtilesPath = await contourBandsToPmtiles(contourBandsGeoJsonPath, workDir);
 
     await onStage("validating", "Validating generated PMTiles archives");
     await validatePmtiles(bathymetryPmtilesPath);
     await validatePmtiles(contourPmtilesPath);
+    await validatePmtiles(contourBandsPmtilesPath);
 
     const bathymetryChecksum = await sha256File(bathymetryPmtilesPath);
     const contourChecksum = await sha256File(contourPmtilesPath);
+    const contourBandsChecksum = await sha256File(contourBandsPmtilesPath);
 
     const bathymetryUnchanged = site.bathymetry_checksum === bathymetryChecksum;
     const contourUnchanged = site.contour_checksum === contourChecksum;
+    const contourBandsUnchanged = site.contour_bands_checksum === contourBandsChecksum;
 
     let bathymetryUrl: string;
     let contourUrl: string;
+    let contourBandsUrl: string;
 
-    if (bathymetryUnchanged && contourUnchanged) {
+    if (bathymetryUnchanged && contourUnchanged && contourBandsUnchanged) {
       // Nothing actually changed vs. what's already live — this is the
       // checksum-comparison short-circuit: skip both uploads entirely and
       // just record that we checked.
       await onStage("checksum_unchanged", "Generated output identical to live dataset by checksum — skipping upload");
       bathymetryUrl = site.bathymetry_tile_url!;
       contourUrl = site.contour_tile_url!;
+      contourBandsUrl = site.contour_bands_tile_url!;
     } else {
       await markUploading(job);
       await onStage("uploading", "Uploading changed PMTiles to Cloudflare R2");
@@ -159,33 +191,40 @@ export async function processJob(job: BathymetryJob): Promise<JobOutcome> {
       const contourResult = contourUnchanged
         ? { uploaded: false, url: site.contour_tile_url!, key: contourKey(site.country, site.name) }
         : await uploadIfChanged(contourKey(site.country, site.name), contourPmtilesPath, contourChecksum);
+      const contourBandsResult = contourBandsUnchanged
+        ? { uploaded: false, url: site.contour_bands_tile_url!, key: contourBandsKey(site.country, site.name) }
+        : await uploadIfChanged(contourBandsKey(site.country, site.name), contourBandsPmtilesPath, contourBandsChecksum);
 
       bathymetryUrl = bathymetryResult.url;
       contourUrl = contourResult.url;
+      contourBandsUrl = contourBandsResult.url;
     }
 
+    const allUnchanged = bathymetryUnchanged && contourUnchanged && contourBandsUnchanged;
     const durationMs = Date.now() - startedAtMs;
     await markJobCompleted(
       job,
       {
         bathymetryTileUrl: bathymetryUrl,
         contourTileUrl: contourUrl,
+        contourBandsTileUrl: contourBandsUrl,
         bathymetryChecksum,
         contourChecksum,
+        contourBandsChecksum,
         providerName: provider.name,
         providerVersion: provider.version,
         generatorVersion: config.generatorVersion,
         workerVersion: config.workerVersion,
-        algorithmVersion: `${ALGORITHM_VERSION_HILLSHADE}+${ALGORITHM_VERSION_CONTOURS}`,
+        algorithmVersion: `${ALGORITHM_VERSION_HILLSHADE}+${ALGORITHM_VERSION_CONTOURS}+${ALGORITHM_VERSION_CONTOUR_BANDS}`,
         resolutionArcSec,
         contourIntervalM: config.contourIntervalM,
         pmtilesVersion: PMTILES_BUILD_VERSION,
-        skippedUnchanged: bathymetryUnchanged && contourUnchanged,
+        skippedUnchanged: allUnchanged,
       },
       durationMs,
     );
-    logger.info("job completed", { jobId: job.id, durationMs, skippedUnchanged: bathymetryUnchanged && contourUnchanged });
-    return bathymetryUnchanged && contourUnchanged ? "SKIPPED_UNCHANGED" : "COMPLETED";
+    logger.info("job completed", { jobId: job.id, durationMs, skippedUnchanged: allUnchanged });
+    return allUnchanged ? "SKIPPED_UNCHANGED" : "COMPLETED";
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     const durationMs = Date.now() - startedAtMs;

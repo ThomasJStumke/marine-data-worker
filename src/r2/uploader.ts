@@ -21,6 +21,10 @@ export function contourKey(country: string | null, launchSiteName: string): stri
   return `contours/launch-sites/${slugify(country || "unknown")}/${slugify(launchSiteName)}.pmtiles`;
 }
 
+export function contourBandsKey(country: string | null, launchSiteName: string): string {
+  return `contour-bands/launch-sites/${slugify(country || "unknown")}/${slugify(launchSiteName)}.pmtiles`;
+}
+
 export interface UploadResult {
   uploaded: boolean;
   url: string;

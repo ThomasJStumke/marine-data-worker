@@ -11,6 +11,7 @@ export interface BathymetryJob {
   coverage_inland_km: number;
   bathymetry_tile_url: string | null;
   contour_tile_url: string | null;
+  contour_bands_tile_url: string | null;
   error_message: string | null;
   error_stack: string | null;
   current_stage: string | null;
@@ -21,6 +22,7 @@ export interface BathymetryJob {
   completed_at: string | null;
   bathymetry_checksum: string | null;
   contour_checksum: string | null;
+  contour_bands_checksum: string | null;
   processing_duration_ms: number | null;
   provider_version: string | null;
   generator_version: string | null;
@@ -41,8 +43,10 @@ export interface LaunchSite {
   beach_facing_deg: number | null;
   bathymetry_tile_url: string | null;
   contour_tile_url: string | null;
+  contour_bands_tile_url: string | null;
   bathymetry_checksum: string | null;
   contour_checksum: string | null;
+  contour_bands_checksum: string | null;
   bathymetry_coverage_offshore_km: number;
   bathymetry_coverage_left_km: number;
   bathymetry_coverage_right_km: number;

@@ -74,8 +74,10 @@ export async function markJobFailed(job: BathymetryJob, info: JobFailureInfo, du
 export interface JobCompletionInfo {
   bathymetryTileUrl: string;
   contourTileUrl: string;
+  contourBandsTileUrl: string;
   bathymetryChecksum: string;
   contourChecksum: string;
+  contourBandsChecksum: string;
   providerName: string;
   providerVersion: string;
   generatorVersion: string;
@@ -96,8 +98,10 @@ export async function markJobCompleted(job: BathymetryJob, info: JobCompletionIn
     current_stage: "completed",
     bathymetry_tile_url: info.bathymetryTileUrl,
     contour_tile_url: info.contourTileUrl,
+    contour_bands_tile_url: info.contourBandsTileUrl,
     bathymetry_checksum: info.bathymetryChecksum,
     contour_checksum: info.contourChecksum,
+    contour_bands_checksum: info.contourBandsChecksum,
     provider_version: info.providerVersion,
     generator_version: info.generatorVersion,
     worker_version: info.workerVersion,
@@ -121,6 +125,7 @@ export async function markJobCompleted(job: BathymetryJob, info: JobCompletionIn
     bathymetry_pmtiles_version: info.pmtilesVersion,
     bathymetry_checksum: info.bathymetryChecksum,
     contour_checksum: info.contourChecksum,
+    contour_bands_checksum: info.contourBandsChecksum,
   };
 
   // Only advance "generated_at" and flip on the layer toggles / URLs when the
@@ -133,8 +138,10 @@ export async function markJobCompleted(job: BathymetryJob, info: JobCompletionIn
     launchSitePatch.bathymetry_last_updated_at = now;
     launchSitePatch.bathymetry_tile_url = info.bathymetryTileUrl;
     launchSitePatch.contour_tile_url = info.contourTileUrl;
+    launchSitePatch.contour_bands_tile_url = info.contourBandsTileUrl;
     launchSitePatch.bathymetry_enabled = true;
     launchSitePatch.contours_enabled = true;
+    launchSitePatch.contour_bands_enabled = true;
   }
 
   const { error } = await db.from("launch_locations").update(launchSitePatch).eq("id", job.launch_site_id);

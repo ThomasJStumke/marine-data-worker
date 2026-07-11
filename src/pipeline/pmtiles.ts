@@ -42,6 +42,22 @@ export async function contoursToPmtiles(contoursGeoJsonPath: string, workDir: st
   return pmtilesPath;
 }
 
+/** Vector (contour bands) GeoJSON -> PMTiles directly via tippecanoe. */
+export async function contourBandsToPmtiles(bandsGeoJsonPath: string, workDir: string): Promise<string> {
+  await mkdir(workDir, { recursive: true });
+  const pmtilesPath = path.join(workDir, "contour-bands.pmtiles");
+
+  await runTool("tippecanoe", [
+    "-o", pmtilesPath,
+    "-l", "contour_bands",
+    "-Z", String(config.minZoom),
+    "-z", String(config.maxZoom),
+    "--force",
+    bandsGeoJsonPath,
+  ]);
+  return pmtilesPath;
+}
+
 function zoomLevels(): string[] {
   const levels: string[] = [];
   for (let z = 2; z <= config.maxZoom - config.minZoom; z *= 2) levels.push(String(z));

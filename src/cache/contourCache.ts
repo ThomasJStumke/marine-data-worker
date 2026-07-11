@@ -19,6 +19,7 @@ async function findContourCacheEntry(
   resolutionArcSec: number,
   contourIntervalM: number,
   cell: GridCell,
+  algorithmVersion: string,
 ): Promise<{ id: string; contoursFile: string; checksum: string } | null> {
   const { data, error } = await db.rpc("find_contour_cache_entry", {
     p_provider: provider,
@@ -27,6 +28,7 @@ async function findContourCacheEntry(
     p_contour_interval_m: contourIntervalM,
     p_grid_south: cell.south,
     p_grid_west: cell.west,
+    p_algorithm_version: algorithmVersion,
   });
   if (error) throw new Error(`find_contour_cache_entry failed: ${error.message}`);
 
@@ -57,6 +59,7 @@ async function storeContourCacheEntry(args: {
   checksum: string;
   sizeBytes: number;
   sourceCacheId: string | null;
+  algorithmVersion: string;
 }): Promise<{ id: string; contoursFile: string; wasExisting: boolean }> {
   const { data, error } = await db.rpc("store_contour_cache_entry", {
     p_provider: args.provider,
@@ -74,6 +77,7 @@ async function storeContourCacheEntry(args: {
     p_size_bytes: args.sizeBytes,
     p_source_cache_id: args.sourceCacheId,
     p_metadata: {},
+    p_algorithm_version: args.algorithmVersion,
   });
   if (error) throw new Error(`store_contour_cache_entry failed: ${error.message}`);
   const row = (Array.isArray(data) ? data[0] : data) as { id: string; contours_file: string; was_existing: boolean };
@@ -106,9 +110,10 @@ export async function fetchOrTraceRegionalContours(
   tracedBBox: BBox, // the ACTUAL bbox sourceRasterPath covers — stored verbatim as this cache row's extent, never recomputed, so it never drifts from what generateContours actually traced
   sourceRasterPath: string,
   sourceCacheId: string | null,
+  algorithmVersion: string, // part of the cache key — see 20260718000000_contour_cache_algorithm_version.sql for why
   onStage: (stage: string, message: string) => Promise<void>,
 ): Promise<RegionalContoursResult> {
-  const existing = await findContourCacheEntry(provider.name, provider.version, resolutionArcSec, contourIntervalM, cell);
+  const existing = await findContourCacheEntry(provider.name, provider.version, resolutionArcSec, contourIntervalM, cell, algorithmVersion);
   if (existing) {
     try {
       await access(existing.contoursFile);
@@ -148,6 +153,7 @@ export async function fetchOrTraceRegionalContours(
     checksum,
     sizeBytes,
     sourceCacheId,
+    algorithmVersion,
   });
 
   if (stored.wasExisting) {

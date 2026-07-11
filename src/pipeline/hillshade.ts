@@ -2,7 +2,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runTool } from "./exec.js";
 
-export const ALGORITHM_VERSION_HILLSHADE = "depth-color-relief-v2";
+// v3: generated ONCE per regional grid cell and clipped per site (see
+// cache/hillshadeCache.ts and clip.ts's clipToPolygon), instead of
+// independently per site — this is what fixes the seams/gaps between
+// adjacent sites' depth-shading tiles. Bumping busts marine_data_hillshade_cache
+// so nothing serves a pre-regional raster.
+export const ALGORITHM_VERSION_HILLSHADE = "depth-color-relief-v3-regional";
 
 // Simple blue-scale bathymetric colour ramp (elevation in metres, negative =
 // underwater). Bundled inline rather than as a separate asset file so the
@@ -34,13 +39,13 @@ const DEPTH_COLOR_RAMP = `-11000 8 29 88 255
 nv 0 0 0 0
 `;
 
-/** Generates the "depth shading" raster (a colour-relief bathymetric render) from the clipped source. This IS the algorithm the "algorithm_version" dataset-versioning field tracks — bump ALGORITHM_VERSION_HILLSHADE whenever the ramp or blend approach changes. */
-export async function generateDepthShading(clippedTifPath: string, workDir: string): Promise<string> {
+/** Generates the "depth shading" raster (a colour-relief bathymetric render) from the given source raster — called once per regional grid cell (see cache/hillshadeCache.ts) on the whole uncut cell raster, then clipped per site. This IS the algorithm the "algorithm_version" dataset-versioning field tracks — bump ALGORITHM_VERSION_HILLSHADE whenever the ramp or blend approach changes. */
+export async function generateDepthShading(sourceTifPath: string, workDir: string): Promise<string> {
   await mkdir(workDir, { recursive: true });
   const rampPath = path.join(workDir, "depth-ramp.txt");
   await writeFile(rampPath, DEPTH_COLOR_RAMP);
 
   const outPath = path.join(workDir, "shaded.tif");
-  await runTool("gdaldem", ["color-relief", "-alpha", clippedTifPath, rampPath, outPath]);
+  await runTool("gdaldem", ["color-relief", "-alpha", sourceTifPath, rampPath, outPath]);
   return outPath;
 }

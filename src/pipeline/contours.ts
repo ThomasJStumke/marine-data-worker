@@ -1,28 +1,40 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runTool } from "./exec.js";
+import { maskLandToNodata } from "./landmask.js";
 import { polygonToGeoJSON } from "../geo/polygon.js";
 import type { CoveragePolygon } from "../types.js";
 
-export const ALGORITHM_VERSION_CONTOURS = "gdal-contour-v3-regional";
+// v5: land is now actually excluded via landmask.ts (masked to nodata before
+// tracing, no -inodata flag so gdal_contour respects that nodata tag) —
+// v1-v3's "-amax <number>" was a no-op (see landmask.ts's doc comment), and
+// the first cut at v4 wrongly passed -inodata (which means "ignore nodata",
+// the opposite of excluding it), producing a spurious contour traced right
+// down to the nodata sentinel value. Bumping this busts
+// marine_data_contour_cache (keyed on algorithm_version, see
+// 20260718000000_contour_cache_algorithm_version.sql) so already-cached grid
+// cells retrace with the real fix instead of serving a still-broken trace.
+export const ALGORITHM_VERSION_CONTOURS = "gdal-contour-v5-landmask-fixed";
 
-// GEBCO elevation is positive on land, so without a ceiling gdal_contour
-// happily traces land-elevation contours too (e.g. a "10" contour up a
-// hillside) — same shore-crossing problem as the raster ramp in
-// hillshade.ts. -amax keeps this to real depth only; -1 matches the
-// raster's cutoff so the two layers agree on where "water" starts.
+// GEBCO elevation is positive on land. -1 matches the raster ramp's cutoff
+// in hillshade.ts so the two layers agree on where "water" starts.
 const MAX_ELEVATION_M = -1;
 
 /** Generates depth-contour lines (GeoJSON) from the clipped source at a fixed interval, e.g. every 10m — land elevation (above MAX_ELEVATION_M) is excluded. */
 export async function generateContours(clippedTifPath: string, workDir: string, intervalM: number): Promise<string> {
   await mkdir(workDir, { recursive: true });
+  const maskedPath = await maskLandToNodata(clippedTifPath, workDir, MAX_ELEVATION_M);
   const outPath = path.join(workDir, "contours.geojson");
+  // No -inodata here — that flag means "ignore nodata and contour through
+  // it anyway" (confirmed via gdal_contour --help/docs), the OPPOSITE of
+  // what's needed. Omitting it makes gdal_contour respect the masked
+  // raster's NoDataValue tag (set by maskLandToNodata) and correctly skip
+  // land instead of tracing a spurious contour down to the nodata sentinel.
   await runTool("gdal_contour", [
     "-a", "depth",
     "-i", String(intervalM),
-    "-amax", String(MAX_ELEVATION_M),
     "-f", "GeoJSON",
-    clippedTifPath,
+    maskedPath,
     outPath,
   ]);
   return outPath;
