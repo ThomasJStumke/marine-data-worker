@@ -5,14 +5,14 @@ import { maskLandToNodata } from "./landmask.js";
 import { polygonToGeoJSON } from "../geo/polygon.js";
 import type { CoveragePolygon } from "../types.js";
 
-// v5: bands are now traced ONCE per regional grid cell and clipped per site
-// (see cache/contourBandsCache.ts and clipContourBandsToPolygon below),
-// instead of independently per site — this is what actually fixes the
-// seams/gaps between adjacent sites' "Custom Shading" fills that v1-v4 always
-// had (see the now-stale comment on generateContourBands below). Bumping
-// busts marine_data_contour_bands_cache so nothing serves a pre-regional
+// v6: landmask.ts's maskLandToNodata now ALSO checks a Natural Earth
+// coastline polygon in addition to the raw elevation cutoff (see
+// landmask.ts) — GEBCO's ~450m resolution disagrees with the real coastline
+// at low-lying coasts/estuaries, so elevation alone let some land bands
+// through (visible as filled, depth-labelled polygons over land). Bumping
+// busts marine_data_contour_bands_cache so nothing serves a pre-coastline-mask
 // trace.
-export const ALGORITHM_VERSION_CONTOUR_BANDS = "gdal-contour-bands-v5-regional";
+export const ALGORITHM_VERSION_CONTOUR_BANDS = "gdal-contour-bands-v6-coastline-mask";
 
 // Same land-exclusion cutoff as contours.ts's MAX_ELEVATION_M. The ogr2ogr
 // -where filter below is a real elevation filter (unlike gdal_contour's own

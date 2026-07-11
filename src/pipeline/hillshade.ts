@@ -1,13 +1,21 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runTool } from "./exec.js";
+import { maskLandToNodata } from "./landmask.js";
 
-// v3: generated ONCE per regional grid cell and clipped per site (see
-// cache/hillshadeCache.ts and clip.ts's clipToPolygon), instead of
-// independently per site — this is what fixes the seams/gaps between
-// adjacent sites' depth-shading tiles. Bumping busts marine_data_hillshade_cache
-// so nothing serves a pre-regional raster.
-export const ALGORITHM_VERSION_HILLSHADE = "depth-color-relief-v3-regional";
+// v4: land is now actually masked to nodata before color-relief runs (via
+// landmask.ts's maskLandToNodata, same function contours.ts/contour-bands.ts
+// already used) instead of relying solely on the colour ramp's alpha=0
+// cutoff below. That cutoff is purely a rendering hint for gdaldem — it
+// doesn't touch the underlying elevation values, so any GEBCO cell that
+// reads land as slightly-negative (common at low-lying coasts/estuaries)
+// still got shaded as if it were shallow water. Bumping busts
+// marine_data_hillshade_cache so nothing serves a pre-landmask raster.
+export const ALGORITHM_VERSION_HILLSHADE = "depth-color-relief-v4-landmask";
+
+// Same land-exclusion cutoff as contours.ts/contour-bands.ts's
+// MAX_ELEVATION_M, so all three layers agree on where "water" starts.
+const MAX_ELEVATION_M = -1;
 
 // Simple blue-scale bathymetric colour ramp (elevation in metres, negative =
 // underwater). Bundled inline rather than as a separate asset file so the
@@ -45,7 +53,8 @@ export async function generateDepthShading(sourceTifPath: string, workDir: strin
   const rampPath = path.join(workDir, "depth-ramp.txt");
   await writeFile(rampPath, DEPTH_COLOR_RAMP);
 
+  const maskedPath = await maskLandToNodata(sourceTifPath, workDir, MAX_ELEVATION_M);
   const outPath = path.join(workDir, "shaded.tif");
-  await runTool("gdaldem", ["color-relief", "-alpha", sourceTifPath, rampPath, outPath]);
+  await runTool("gdaldem", ["color-relief", "-alpha", maskedPath, rampPath, outPath]);
   return outPath;
 }

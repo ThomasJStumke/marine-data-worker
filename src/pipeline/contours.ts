@@ -5,16 +5,13 @@ import { maskLandToNodata } from "./landmask.js";
 import { polygonToGeoJSON } from "../geo/polygon.js";
 import type { CoveragePolygon } from "../types.js";
 
-// v5: land is now actually excluded via landmask.ts (masked to nodata before
-// tracing, no -inodata flag so gdal_contour respects that nodata tag) —
-// v1-v3's "-amax <number>" was a no-op (see landmask.ts's doc comment), and
-// the first cut at v4 wrongly passed -inodata (which means "ignore nodata",
-// the opposite of excluding it), producing a spurious contour traced right
-// down to the nodata sentinel value. Bumping this busts
-// marine_data_contour_cache (keyed on algorithm_version, see
-// 20260718000000_contour_cache_algorithm_version.sql) so already-cached grid
-// cells retrace with the real fix instead of serving a still-broken trace.
-export const ALGORITHM_VERSION_CONTOURS = "gdal-contour-v5-landmask-fixed";
+// v6: landmask.ts's maskLandToNodata now ALSO checks a Natural Earth
+// coastline polygon in addition to the raw elevation cutoff (see
+// landmask.ts) — GEBCO's ~450m resolution disagrees with the real coastline
+// at low-lying coasts/estuaries, so elevation alone let some land through.
+// Bumping busts marine_data_contour_cache so already-cached grid cells
+// retrace with the tighter mask instead of serving a still-affected trace.
+export const ALGORITHM_VERSION_CONTOURS = "gdal-contour-v6-coastline-mask";
 
 // GEBCO elevation is positive on land. -1 matches the raster ramp's cutoff
 // in hillshade.ts so the two layers agree on where "water" starts.

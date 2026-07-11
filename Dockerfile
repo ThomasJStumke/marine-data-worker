@@ -50,6 +50,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 COPY --from=build /app/dist ./dist
+# Natural Earth 10m land polygons (public domain) — used by
+# pipeline/landmask.ts to mask land out of hillshade/contours/contour-bands
+# alongside the raw elevation cutoff. See landmask.ts for why both are needed.
+COPY data ./data
 
 ENV NODE_ENV=production
 ENV CACHE_DIRECTORY=/var/lib/marine-data-worker/cache
