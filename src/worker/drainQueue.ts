@@ -2,7 +2,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { claimNextJob } from "../db/jobs.js";
 import { processJob } from "./processJob.js";
-import { finishWorkerRun, failWorkerRun, type WorkerRunCounts } from "../db/workerRuns.js";
+import { finishWorkerRun, failWorkerRun, updateWorkerRunProgress, type WorkerRunCounts } from "../db/workerRuns.js";
 
 /**
  * Claims and processes every currently-QUEUED bathymetry job, finalizing the
@@ -29,6 +29,9 @@ export async function drainBathymetryQueue(runId: string): Promise<void> {
         if (!job) break;
         counts.jobsClaimed++;
         logger.info("claimed job", { jobId: job.id, launchSiteId: job.launch_site_id, activeCount: active.size + 1 });
+        await updateWorkerRunProgress(runId, counts).catch((err) =>
+          logger.warn("failed to record worker run progress", { jobId: job.id, error: String(err) }),
+        );
         const p = processJob(job)
           .then((outcome) => {
             if (outcome === "COMPLETED") counts.jobsCompleted++;
@@ -39,7 +42,12 @@ export async function drainBathymetryQueue(runId: string): Promise<void> {
             counts.jobsFailed++;
             logger.error("unexpected error escaped processJob", { jobId: job.id, error: String(err) });
           })
-          .finally(() => active.delete(job.id));
+          .finally(() => {
+            active.delete(job.id);
+            void updateWorkerRunProgress(runId, counts).catch((err) =>
+              logger.warn("failed to record worker run progress", { jobId: job.id, error: String(err) }),
+            );
+          });
         active.set(job.id, p);
       }
       if (active.size === 0) break;

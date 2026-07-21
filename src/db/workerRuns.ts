@@ -38,6 +38,20 @@ export async function claimPendingWorkerRun(): Promise<PendingWorkerRun | null> 
   return rows[0] ?? null;
 }
 
+/** Updates the running total on an in-progress row after each job settles, so the admin UI's "Jobs claimed" card reflects live progress instead of jumping from 0 straight to the final count when the whole queue finishes draining. */
+export async function updateWorkerRunProgress(runId: string, counts: WorkerRunCounts): Promise<void> {
+  const { error } = await db
+    .from("marine_data_worker_runs")
+    .update({
+      jobs_claimed: counts.jobsClaimed,
+      jobs_completed: counts.jobsCompleted,
+      jobs_failed: counts.jobsFailed,
+      jobs_skipped_unchanged: counts.jobsSkippedUnchanged,
+    })
+    .eq("id", runId);
+  if (error) throw new Error(`Failed to record worker run progress: ${error.message}`);
+}
+
 export async function finishWorkerRun(runId: string, counts: WorkerRunCounts): Promise<void> {
   const { error } = await db
     .from("marine_data_worker_runs")

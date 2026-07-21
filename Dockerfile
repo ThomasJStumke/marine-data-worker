@@ -20,6 +20,12 @@ FROM ghcr.io/osgeo/gdal:ubuntu-full-3.9.0
 ARG NODE_MAJOR=22
 ARG PMTILES_VERSION=1.24.1
 
+# The base image ships an Apache Arrow apt source (for GDAL's optional
+# Arrow/Parquet driver) whose signing key is missing/expired upstream,
+# which fails `apt-get update` outright. We don't install anything from
+# it, so drop the source rather than weaken apt's signature checking.
+RUN rm -f /etc/apt/sources.list.d/apache-arrow.sources
+
 # Node.js + build tools for compiling Tippecanoe from source (no official
 # Debian/Ubuntu package as of writing).
 RUN apt-get update && apt-get install -y --no-install-recommends \

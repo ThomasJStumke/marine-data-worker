@@ -64,10 +64,19 @@ export function buildCoveragePolygon(
   return { ring, bbox };
 }
 
+// cos(latitude) used below to convert an east-west margin from km to degrees
+// shrinks toward 0 near the poles, which would blow dLng up toward infinity
+// for a site placed there — clamping the latitude used for that conversion
+// (never resolving as if we were closer to the pole than this) bounds dLng
+// to a sane maximum instead of producing a pathologically wide bbox that a
+// downstream gdalwarp/gdal_rasterize call would try to rasterize in full.
+const MAX_ABS_LATITUDE_FOR_PADDING_DEG = 85;
+
 /** Expands a bbox by a fixed margin (km) in every direction — used before downloading source data so the cached extent is more likely to fully cover future nearby requests. */
 export function padBBox(bbox: BBox, marginKm: number, latitude: number): BBox {
+  const clampedLatitude = Math.max(-MAX_ABS_LATITUDE_FOR_PADDING_DEG, Math.min(MAX_ABS_LATITUDE_FOR_PADDING_DEG, latitude));
   const dLat = marginKm / KM_PER_DEG_LAT;
-  const dLng = marginKm / (KM_PER_DEG_LAT * Math.cos(toRad(latitude)));
+  const dLng = marginKm / (KM_PER_DEG_LAT * Math.cos(toRad(clampedLatitude)));
   return {
     west: bbox.west - dLng,
     south: bbox.south - dLat,

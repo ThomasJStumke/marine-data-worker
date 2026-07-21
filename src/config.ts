@@ -67,6 +67,12 @@ export const config = {
   cacheDirectory: process.env.CACHE_DIRECTORY || "./.cache",
   workDirectory: process.env.WORK_DIRECTORY || "./.work",
 
+  // Cache retention (worker:cleanup-cache). 0 disables that criterion —
+  // both can be enabled together, in which case an entry is evicted as
+  // soon as either limit is hit. See src/cli/cleanupCache.ts.
+  cacheRetentionDays: envInt("CACHE_RETENTION_DAYS", 90),
+  cacheMaxSizeGb: envInt("CACHE_MAX_SIZE_GB", 150),
+
   maxConcurrentJobs: envInt("MAX_CONCURRENT_JOBS", 2),
   pollIntervalMs: envInt("POLL_INTERVAL_MS", 10_000),
   // How often `worker:drain` is expected to be invoked (e.g. by cron) —

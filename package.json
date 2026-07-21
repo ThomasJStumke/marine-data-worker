@@ -16,6 +16,7 @@
     "worker:queue": "tsx src/cli/queue.ts",
     "worker:requeue-generated": "tsx src/cli/requeueGenerated.ts",
     "worker:retry": "tsx src/cli/retry.ts",
+    "worker:cleanup-cache": "tsx src/cli/cleanupCache.ts",
     "structures:import": "tsx src/cli/importStructures.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli/run.js",
