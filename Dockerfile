@@ -3,7 +3,7 @@
 # -> R2-upload pipeline runs from one container with no external GIS service.
 
 # ── Build stage: compile TypeScript (needs devDependencies) ────────────────
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
