@@ -15,7 +15,7 @@ RUN npm run build
 # ubuntu-full, not ubuntu-small: the GEBCO grid is distributed as NetCDF, and
 # ubuntu-small's GDAL build has no netCDF driver at all (confirmed via
 # `gdalinfo --formats`) — it would fail to open GEBCO_LOCAL_GRID_PATH.
-FROM ghcr.io/osgeo/gdal:ubuntu-full-3.9.0
+FROM ghcr.io/osgeo/gdal:ubuntu-full-3.13.3
 
 ARG NODE_MAJOR=22
 ARG PMTILES_VERSION=1.24.1
